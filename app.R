@@ -68,7 +68,6 @@ ui <- fluidPage(
 
         mainPanel(
            plotlyOutput("map1"),
-           # dataTableOutput("table1A"),
            h4("New federal funding for community colleges:"),
            tableOutput("table2"),
            h4("Federal allocations to states: Fiscal Year 2022-23"),
@@ -265,21 +264,6 @@ server <- function(input, output) {
         })
         output$table1T <- renderDataTable({
             DT::datatable(table1tribe, options=list(pagelength=10))
-        })
-        
-        ###############################################################
-        #### Let's also make one table that sums for all states    ####
-        #### and tribes.                                           ####
-        ###############################################################
-        
-        table1all <- data.frame(group = c("States", "Tribes"), 
-                              totalFunding = c(sum(table1state$federalAllocation), 
-                                               sum(table1tribe$federalAllocation)), 
-                              FTEseats = c(sum(table1state$adjResidentFTE), 
-                                           sum(table1tribe$adjResidentFTE)))
-        names(table1all) <- c("Group", "Total federal funding (2022-23)", "Total eligible FTEs (2022-23)")
-        output$table1A <- renderDataTable({
-            DT::datatable(table1all)
         })
         
         ###############################################################
