@@ -2,7 +2,7 @@ library(data.table)
 library(dplyr)
 library(xlsx)
 library(ggplot2)
-setwd("C:/Users/19732/Desktop/IPEDS/Files")
+setwd("C:/Users/19732/Desktop/IPEDS/Files") # This folder contains IPEDS data files and other necessary files. 
 
 runCostModel <- function(stateFileName, tribeFileName, assocThreshold, graduateFilter){
   
@@ -116,11 +116,11 @@ runCostModel <- function(stateFileName, tribeFileName, assocThreshold, graduateF
   communityColleges <- aggregate(data=assocShare, assocPct ~ UNITID, FUN=sum)
   communityColleges <- communityColleges %>% filter(assocPct >= assocThreshold) #assocThreshold is an argument of runCostModel
   
-  # Checking how my list compares to CCRC's 
+  # Checking how my list compares to CCRC's: 
   # forCCRCcomparison <- left_join(x=hd2020, y=communityColleges, by="UNITID")
   # CCRCsectors <- fread("CCRCsectors.csv", header=TRUE, select=c("UNITID", "SECTOR"))
   # sectorComp <- full_join(x=forCCRCcomparison, y=CCRCsectors, by="UNITID")
-  # write.csv(sectorComp, "output0726202101.csv")
+  # write.csv(sectorComp, "output07-26-2021-01.csv")
   
   fullData <- left_join(x=fullData, y=communityColleges, by="UNITID")
   fullData <- fullData %>% filter(is.na(assocPct)==FALSE | TRIBAL==1)
@@ -167,13 +167,16 @@ runCostModel <- function(stateFileName, tribeFileName, assocThreshold, graduateF
     "EFTEGD"     # Estimated full-time equivalent (FTE) graduate enrollment, 2018-19
   ))
   fullData <- left_join(x=fullData, y=efia2020, by="UNITID")
+  
   # fullData[is.na(fullData$EFTEUG) & is.na(fullData$EFTEGD)]
   # This shows that all institutions in fullData have either UG or GD FTE data. 
+  
   fullData$EFTEUG[is.na(fullData$EFTEUG)] <- 0
   fullData$EFTEGD[is.na(fullData$EFTEGD)] <- 0
   fullData$EFTEUG <- as.numeric(fullData$EFTEUG)
   fullData$EFTEGD <- as.numeric(fullData$EFTEGD)
   fullData$totalFTE <- fullData$EFTEUG + fullData$EFTEGD
+  
   # fullData[is.na(fullData$totalFTE)]
   # This shows that our totalFTE variable does not have any missing points. 
   
@@ -237,7 +240,7 @@ runCostModel <- function(stateFileName, tribeFileName, assocThreshold, graduateF
   sfa1819$residentPct[is.nan(sfa1819$residentPct)] <- NA
   fullData <- left_join(x=fullData, y=sfa1819, by="UNITID")
   
-  # For item 2 in the methodology: 
+  # For Discussion Item 2 in the methodology: 
   # sum(is.na(fullData$residentPct) & is.na(fullData$inStatePct))
   # sum(is.na(fullData$residentPct) | is.na(fullData$inStatePct))
   # sum(is.na(fullData$residentPct)==FALSE & is.na(fullData$inStatePct)==FALSE)
@@ -363,13 +366,13 @@ runCostModel <- function(stateFileName, tribeFileName, assocThreshold, graduateF
   stateModel <- left_join(x=stateModel, y=MSIbyState, by="STABBR2")
   tribeModel <- left_join(x=tribeModel, y=MSIbyState, by="STABBR2")
   
-  # For item 6
+  # For Discussion Item 6
   # mean(fullStateData$adjTuitionAndFees) # Institutional definition
   # sum(fullStateData$tuitionFTEproduct) / sum(fullStateData$adjResidentFTE) # Student-level definition
   # mean(stateModel$tuitionFTEproduct / stateModel$adjResidentFTE) # State-level definition
   
   #########################################################
-  #### I now add in data that will be necessary in the ####
+  #### We now add in data that will be necessary in the####
   #### R Shiny code when calculating the federal match ####
   #### for tribes. See Item 6 for details.             ####
   #########################################################
@@ -438,7 +441,7 @@ runCostModel("stateModel95B.csv", "tribeModel95B.csv", assocThreshold=0.95, grad
 
 
 
-# ACS Data Pull 
+# Some code for American Community Survey Public Use Microdata Sample: Data pull on population aged 18-35 without a college degree 
 # setwd("C:/Users/19732/Downloads/csv_pus (14)")
 # library(data.table)
 # library(dplyr)
