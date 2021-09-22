@@ -3,7 +3,7 @@ library(dplyr)
 library(ggplot2)
 setwd("C:/Users/19732/Desktop/IPEDS/Files") # This folder contains IPEDS data files and other necessary files. 
 
-runCostModel <- function(stateFileName, tribeFileName, geoFileName, definingPredominant){
+runCostModel <- function(stateFileName, tribeFileName, geoFileName, onlyStandardFees){
   
   #########################################################
   #### Step 1 of methodology:                          ####
@@ -23,7 +23,6 @@ runCostModel <- function(stateFileName, tribeFileName, geoFileName, definingPred
     "INSTNM",    # Institution (entity) name
     "CONTROL",   # Control of institution
     "SECTOR",    # Sector of institution 
-    "C18BASIC",  # Carnegie Classification (Basic)
     "TRIBAL",    # Tribal college
     "DEGGRANT",  # Degree-granting status
     "HDEGOFR1",  # Highest degree offered
@@ -33,7 +32,7 @@ runCostModel <- function(stateFileName, tribeFileName, geoFileName, definingPred
   hd2020$STABBR2 <- ifelse(hd2020$TRIBAL==1, "Tribal Colleges", hd2020$STABBR) 
   hd2020 <- hd2020 %>% filter(CONTROL==1 | TRIBAL==1) 
   hd2020 <- hd2020 %>% filter(SECTOR>0)
-  hd2020 <- hd2020 %>% filter(DEGGRANT==1)
+  hd2020 <- hd2020 %>% filter(DEGGRANT==1) # All community colleges must be degree-granting, and there are no tribal colleges in IPEDS that are not degree-granting
   
   #########################################################
   #### Next, we load in headcount enrollment by race.  ####
@@ -129,14 +128,15 @@ runCostModel <- function(stateFileName, tribeFileName, geoFileName, definingPred
   f1819_f2$tuitionAndFeeRevenue <- f1819_f2$F2D01 + f1819_f2$F2C08
   f1819_f2 <- f1819_f2 %>% select(UNITID, F2C03, tuitionAndFeeRevenue)
   
-  names(f1819_f1a) <- c("UNITID", "STATEGRANTS", "tuitionAndFeeRevenue")
-  names(f1819_f2) <- c("UNITID", "STATEGRANTS", "tuitionAndFeeRevenue")
+  names(f1819_f1a) <- c("UNITID", "stateFinAid", "tuitionAndFeeRevenue")
+  names(f1819_f2) <- c("UNITID", "stateFinAid", "tuitionAndFeeRevenue")
   
-  f1819_f1a$STATEGRANTS[is.na(f1819_f1a$STATEGRANTS)] <- 0 # All institutions with NAs are system offices
-  f1819_f2$STATEGRANTS[is.na(f1819_f2$STATEGRANTS)] <- 0   # All institutions with NAs are system offices
+  f1819_f1a$stateFinAid[is.na(f1819_f1a$stateFinAid)] <- 0 # All institutions with NAs are system offices
+  f1819_f2$stateFinAid[is.na(f1819_f2$stateFinAid)] <- 0   # All institutions with NAs are system offices
   
   f1819 <- rbind(f1819_f1a, f1819_f2)
   fullData <- left_join(x=fullData, y=f1819, by="UNITID")
+  
   
   #########################################################
   #### Step 2 of methodology:                          ####
@@ -144,7 +144,7 @@ runCostModel <- function(stateFileName, tribeFileName, geoFileName, definingPred
   
   #########################################################
   #### Next, we load in tuition and fees charges and   ####
-  #### use a left-join to merge it to our base set.    ####
+  #### merge it to our base set.                       ####
   #########################################################
   
   ic2020_ay <- fread("ic2020_ay.csv", header=TRUE, select=c(
@@ -173,7 +173,11 @@ runCostModel <- function(stateFileName, tribeFileName, geoFileName, definingPred
   
   ic2020_ay$differentPricing <- ifelse((ic2020_ay$TUITION1 != ic2020_ay$TUITION2) | (ic2020_ay$TUITION3 != ic2020_ay$TUITION2), "Yes", "No")
   
+  ic2020_ay$inDistrictTuitionAndFees <- ic2020_ay$TUITION1 + ic2020_ay$FEE1
   ic2020_ay$inStateTuitionAndFees <- ic2020_ay$TUITION2 + ic2020_ay$FEE2 
+  ic2020_ay$outOfStateTuitionAndFees <- ic2020_ay$TUITION3 + ic2020_ay$FEE3
+  
+  ic2020_ay <- ic2020_ay %>% select(UNITID, differentPricing, inDistrictTuitionAndFees, inStateTuitionAndFees, outOfStateTuitionAndFees)
   
   fullData <- left_join(x=fullData, y=ic2020_ay, by="UNITID")
 
@@ -189,6 +193,8 @@ runCostModel <- function(stateFileName, tribeFileName, geoFileName, definingPred
   #### predominant degree awarded is the associate     ####
   #### degree. We use awards from 2017-18, 2018-19,    ####
   #### and 2019-20 to make these determinations.       ####
+  #### See the full methodology document for our       ####
+  #### interpretation of "predominant" in this context.####
   #########################################################
   
   c2020_a <- fread("c2020_a.csv", header=TRUE, select=c(
@@ -226,61 +232,150 @@ runCostModel <- function(stateFileName, tribeFileName, geoFileName, definingPred
   
   c20xx_a <- rbind(c2020_a, c2019_a, c2018_a)
   
-  if(definingPredominant==TRUE){
-    tbl1All <- aggregate(data=c20xx_a, CTOTALT ~ UNITID, FUN=sum)
-    names(tbl1All) <- c("UNITID", "AllDegrees")
-    associateDegreesOnly <- c20xx_a %>% filter(AWLEVEL==3)
-    tbl1Assoc <- aggregate(data=associateDegreesOnly, CTOTALT ~ UNITID, FUN=sum)
-    names(tbl1Assoc) <- c("UNITID", "AssociateDegrees")
-    fullData <- left_join(x=fullData, y=tbl1All, by="UNITID")
-    fullData <- left_join(x=fullData, y=tbl1Assoc, by="UNITID")
-    fullData$AssociateDegrees <- ifelse(is.na(fullData$AssociateDegrees), 0, fullData$AssociateDegrees)
-    fullData$associateShare <- fullData$AssociateDegrees / fullData$AllDegrees
-    fullData <- fullData %>% filter(HDEGOFR1==40 | associateShare >= 0.5)
-  }
-  if(definingPredominant==FALSE){
-    tbl1 <- dcast(data=c20xx_a, UNITID ~ AWLEVEL, value.var = "CTOTALT", fun.aggregate=sum)
-    names(tbl1) <- c("UNITID", "Assoc", "Bach", "Mast", "Doc1", "Doc2", "Doc3")
-    tbl1 <- tbl1 %>% filter(Assoc + Bach + Mast + Doc1 + Doc2 + Doc3 > 0)
-    tbl1$highest <- colnames(tbl1[, 2:7])[max.col(tbl1[, 2:7], ties.method = "first")]
-    tbl2 <- tbl1 %>% select(UNITID, highest)
-    fullData <- left_join(x=fullData, y=tbl2, by="UNITID")
-    fullData <- fullData %>% filter(HDEGOFR1==40 | highest=="Assoc")
-  }
-  
+  tbl1All <- aggregate(data=c20xx_a, CTOTALT ~ UNITID, FUN=sum)
+  names(tbl1All) <- c("UNITID", "AllDegrees")
+  associateDegreesOnly <- c20xx_a %>% filter(AWLEVEL==3)
+  tbl1Assoc <- aggregate(data=associateDegreesOnly, CTOTALT ~ UNITID, FUN=sum)
+  names(tbl1Assoc) <- c("UNITID", "AssociateDegrees")
+  fullData <- left_join(x=fullData, y=tbl1All, by="UNITID")
+  fullData <- left_join(x=fullData, y=tbl1Assoc, by="UNITID")
+  fullData$AssociateDegrees <- ifelse(is.na(fullData$AssociateDegrees), 0, fullData$AssociateDegrees)
+  fullData$associateShare <- fullData$AssociateDegrees / fullData$AllDegrees
+  fullData <- fullData %>% filter(HDEGOFR1==40 | associateShare >= 0.5)
+
   #########################################################
   #### Step 4 of methodology:                          ####
   #########################################################
   
   #########################################################
   #### Next, we must address missing tuition and fees  ####
-  #### for some institutions. We use College Scorecard ####
-  #### tuition revenue per FTE as a proxy. This is     ####
-  #### only necessary for 15 institutions in our set.  ####
+  #### for some institutions. We use the prior year's  ####
+  #### IPEDS data as a proxy for 9 institutions. Then, ####
+  #### we use College Scorecard tuition revenue per    ####
+  #### FTE as a proxy for another 7 institutions.      ####
   #########################################################
   
+  ic2019_ay <- fread("ic2019_ay.csv", header=TRUE, select=c(
+    "UNITID",    # Unique identification number of the institution
+    "TUITION1",  # In-district average tuition for full-time undergraduates, 2020-21 
+    "FEE1",      # In-district required fees for full-time undergraduates, 2020-21
+    "TUITION2",  # In-state average tuition for full-time undergraduates, 2020-21 
+    "FEE2",      # In-state required fees for full-time undergraduates, 2020-21
+    "TUITION3",  # Out-of-state average tuition for full-time undergraduates
+    "FEE3"       # Out-of-state required fees for full-time undergraduates
+  ))
+  
+  ic2019_ay$TUITION1 <- ifelse(ic2019_ay$TUITION1 == ".", NA, ic2019_ay$TUITION1)
+  ic2019_ay$FEE1 <- ifelse(ic2019_ay$FEE1 == ".", NA, ic2019_ay$FEE1)
+  ic2019_ay$TUITION2 <- ifelse(ic2019_ay$TUITION2 == ".", NA, ic2019_ay$TUITION2)
+  ic2019_ay$FEE2 <- ifelse(ic2019_ay$FEE2 == ".", NA, ic2019_ay$FEE2)
+  ic2019_ay$TUITION3 <- ifelse(ic2019_ay$TUITION3 == ".", NA, ic2019_ay$TUITION3)
+  ic2019_ay$FEE3 <- ifelse(ic2019_ay$FEE3 == ".", NA, ic2019_ay$FEE3)
+  
+  ic2019_ay$TUITION1 <- as.numeric(ic2019_ay$TUITION1)
+  ic2019_ay$FEE1 <- as.numeric(ic2019_ay$FEE1)
+  ic2019_ay$TUITION2 <- as.numeric(ic2019_ay$TUITION2)
+  ic2019_ay$FEE2 <- as.numeric(ic2019_ay$FEE2)
+  ic2019_ay$TUITION3 <- as.numeric(ic2019_ay$TUITION3)
+  ic2019_ay$FEE3 <- as.numeric(ic2019_ay$FEE3)
+  
+  ic2019_ay$differentPricing <- ifelse((ic2019_ay$TUITION1 != ic2019_ay$TUITION2) | (ic2019_ay$TUITION3 != ic2019_ay$TUITION2), "Yes", "No")
+  
+  ic2019_ay$inDistrictTuitionAndFees <- ic2019_ay$TUITION1 + ic2019_ay$FEE1
+  ic2019_ay$inStateTuitionAndFees <- ic2019_ay$TUITION2 + ic2019_ay$FEE2 
+  ic2019_ay$outOfStateTuitionAndFees <- ic2019_ay$TUITION3 + ic2019_ay$FEE3
+  
+  ic2019_ay <- ic2019_ay %>% select(UNITID, differentPricing, inDistrictTuitionAndFees, inStateTuitionAndFees, outOfStateTuitionAndFees)
+  
+  fullData$inDistrictTuitionAndFees[fullData$UNITID==223524] <- ic2019_ay$inDistrictTuitionAndFees[ic2019_ay$UNITID==223524] # Brookhaven College (TX)
+  fullData$inDistrictTuitionAndFees[fullData$UNITID==223773] <- ic2019_ay$inDistrictTuitionAndFees[ic2019_ay$UNITID==223773] # Cedar Valley College (TX)
+  fullData$inDistrictTuitionAndFees[fullData$UNITID==224572] <- ic2019_ay$inDistrictTuitionAndFees[ic2019_ay$UNITID==224572] # Eastfield College (TX)
+  fullData$inDistrictTuitionAndFees[fullData$UNITID==226930] <- ic2019_ay$inDistrictTuitionAndFees[ic2019_ay$UNITID==226930] # Mountain View College (TX)
+  fullData$inDistrictTuitionAndFees[fullData$UNITID==227191] <- ic2019_ay$inDistrictTuitionAndFees[ic2019_ay$UNITID==227191] # North Lake College (TX)
+  fullData$inDistrictTuitionAndFees[fullData$UNITID==227766] <- ic2019_ay$inDistrictTuitionAndFees[ic2019_ay$UNITID==227766] # Richland College (TX)
+  fullData$inDistrictTuitionAndFees[fullData$UNITID==214740] <- ic2019_ay$inDistrictTuitionAndFees[ic2019_ay$UNITID==214740] # Pennsylvania State University-Penn State DuBois (PA)
+  fullData$inDistrictTuitionAndFees[fullData$UNITID==214795] <- ic2019_ay$inDistrictTuitionAndFees[ic2019_ay$UNITID==214795] # Pennsylvania State University-Penn State Mont Alto (PA)
+  fullData$inDistrictTuitionAndFees[fullData$UNITID==439145] <- ic2019_ay$inDistrictTuitionAndFees[ic2019_ay$UNITID==439145] # Pierce College-Puyallup (WA)
+  
+  fullData$inStateTuitionAndFees[fullData$UNITID==223524] <- ic2019_ay$inStateTuitionAndFees[ic2019_ay$UNITID==223524] # Brookhaven College (TX)
+  fullData$inStateTuitionAndFees[fullData$UNITID==223773] <- ic2019_ay$inStateTuitionAndFees[ic2019_ay$UNITID==223773] # Cedar Valley College (TX)
+  fullData$inStateTuitionAndFees[fullData$UNITID==224572] <- ic2019_ay$inStateTuitionAndFees[ic2019_ay$UNITID==224572] # Eastfield College (TX)
+  fullData$inStateTuitionAndFees[fullData$UNITID==226930] <- ic2019_ay$inStateTuitionAndFees[ic2019_ay$UNITID==226930] # Mountain View College (TX)
+  fullData$inStateTuitionAndFees[fullData$UNITID==227191] <- ic2019_ay$inStateTuitionAndFees[ic2019_ay$UNITID==227191] # North Lake College (TX)
+  fullData$inStateTuitionAndFees[fullData$UNITID==227766] <- ic2019_ay$inStateTuitionAndFees[ic2019_ay$UNITID==227766] # Richland College (TX)
+  fullData$inStateTuitionAndFees[fullData$UNITID==214740] <- ic2019_ay$inStateTuitionAndFees[ic2019_ay$UNITID==214740] # Pennsylvania State University-Penn State DuBois (PA)
+  fullData$inStateTuitionAndFees[fullData$UNITID==214795] <- ic2019_ay$inStateTuitionAndFees[ic2019_ay$UNITID==214795] # Pennsylvania State University-Penn State Mont Alto (PA)
+  fullData$inStateTuitionAndFees[fullData$UNITID==439145] <- ic2019_ay$inStateTuitionAndFees[ic2019_ay$UNITID==439145] # Pierce College-Puyallup (WA)
+  
+  fullData$outOfStateTuitionAndFees[fullData$UNITID==223524] <- ic2019_ay$outOfStateTuitionAndFees[ic2019_ay$UNITID==223524] # Brookhaven College (TX)
+  fullData$outOfStateTuitionAndFees[fullData$UNITID==223773] <- ic2019_ay$outOfStateTuitionAndFees[ic2019_ay$UNITID==223773] # Cedar Valley College (TX)
+  fullData$outOfStateTuitionAndFees[fullData$UNITID==224572] <- ic2019_ay$outOfStateTuitionAndFees[ic2019_ay$UNITID==224572] # Eastfield College (TX)
+  fullData$outOfStateTuitionAndFees[fullData$UNITID==226930] <- ic2019_ay$outOfStateTuitionAndFees[ic2019_ay$UNITID==226930] # Mountain View College (TX)
+  fullData$outOfStateTuitionAndFees[fullData$UNITID==227191] <- ic2019_ay$outOfStateTuitionAndFees[ic2019_ay$UNITID==227191] # North Lake College (TX)
+  fullData$outOfStateTuitionAndFees[fullData$UNITID==227766] <- ic2019_ay$outOfStateTuitionAndFees[ic2019_ay$UNITID==227766] # Richland College (TX)
+  fullData$outOfStateTuitionAndFees[fullData$UNITID==214740] <- ic2019_ay$outOfStateTuitionAndFees[ic2019_ay$UNITID==214740] # Pennsylvania State University-Penn State DuBois (PA)
+  fullData$outOfStateTuitionAndFees[fullData$UNITID==214795] <- ic2019_ay$outOfStateTuitionAndFees[ic2019_ay$UNITID==214795] # Pennsylvania State University-Penn State Mont Alto (PA)
+  fullData$outOfStateTuitionAndFees[fullData$UNITID==439145] <- ic2019_ay$outOfStateTuitionAndFees[ic2019_ay$UNITID==439145] # Pierce College-Puyallup (WA)
+  
+  fullData$differentPricing[fullData$UNITID==223524] <- ic2019_ay$differentPricing[ic2019_ay$UNITID==223524] # Brookhaven College (TX)
+  fullData$differentPricing[fullData$UNITID==223773] <- ic2019_ay$differentPricing[ic2019_ay$UNITID==223773] # Cedar Valley College (TX)
+  fullData$differentPricing[fullData$UNITID==224572] <- ic2019_ay$differentPricing[ic2019_ay$UNITID==224572] # Eastfield College (TX)
+  fullData$differentPricing[fullData$UNITID==226930] <- ic2019_ay$differentPricing[ic2019_ay$UNITID==226930] # Mountain View College (TX)
+  fullData$differentPricing[fullData$UNITID==227191] <- ic2019_ay$differentPricing[ic2019_ay$UNITID==227191] # North Lake College (TX)
+  fullData$differentPricing[fullData$UNITID==227766] <- ic2019_ay$differentPricing[ic2019_ay$UNITID==227766] # Richland College (TX)
+  fullData$differentPricing[fullData$UNITID==214740] <- ic2019_ay$differentPricing[ic2019_ay$UNITID==214740] # Pennsylvania State University-Penn State DuBois (PA)
+  fullData$differentPricing[fullData$UNITID==214795] <- ic2019_ay$differentPricing[ic2019_ay$UNITID==214795] # Pennsylvania State University-Penn State Mont Alto (PA)
+  fullData$differentPricing[fullData$UNITID==439145] <- ic2019_ay$differentPricing[ic2019_ay$UNITID==439145] # Pierce College-Puyallup (WA)
+
+  #########################################################
+  #### There are now 7 institutions that lack data in  ####
+  #### IPEDS for tuition and fee charges for any of    ####
+  #### the past five years. For these institutions, we ####
+  #### use College Scorecard's data on tuition revenue ####
+  #### per FTE as a proxy for actual tuition and fee   ####
+  #### charges.                                        ####
+  #########################################################
+
   collegeScorecard <- fread("Most-Recent-Cohorts-All-Data-Elements.csv", header=TRUE, select=c(
     "UNITID", 
     "TUITFTE"
   ))
+  
   fullData$inStateTuitionAndFees[fullData$UNITID == 155618] <- collegeScorecard$TUITFTE[collegeScorecard$UNITID==155618]  # Northwest Kansas Technical College (KS)
   fullData$inStateTuitionAndFees[fullData$UNITID == 369668] <- collegeScorecard$TUITFTE[collegeScorecard$UNITID==369668]  # Central Pennsylvania Institute of Science and Technology (PA)
   fullData$inStateTuitionAndFees[fullData$UNITID == 383084] <- collegeScorecard$TUITFTE[collegeScorecard$UNITID==383084]  # Hacienda La Puente Adult Education (CA)
   fullData$inStateTuitionAndFees[fullData$UNITID == 413802] <- collegeScorecard$TUITFTE[collegeScorecard$UNITID==413802]  # East San Gabriel Valley Regional Occupational Program (CA)
   fullData$inStateTuitionAndFees[fullData$UNITID == 418533] <- collegeScorecard$TUITFTE[collegeScorecard$UNITID==418533]  # Lancaster County Career and Technology Center (PA)
   fullData$inStateTuitionAndFees[fullData$UNITID == 430795] <- collegeScorecard$TUITFTE[collegeScorecard$UNITID==430795]  # Carver Career Center (WV)
-  fullData$inStateTuitionAndFees[fullData$UNITID == 491844] <- collegeScorecard$TUITFTE[collegeScorecard$UNITID==491844]  # Red Lake Nation College
-  fullData$inStateTuitionAndFees[fullData$UNITID == 214740] <- collegeScorecard$TUITFTE[collegeScorecard$UNITID==214740] # Pennsylvania State University-Penn State DuBois
-  fullData$inStateTuitionAndFees[fullData$UNITID == 223524] <- collegeScorecard$TUITFTE[collegeScorecard$UNITID==223524] # Brookhaven College
-  fullData$inStateTuitionAndFees[fullData$UNITID == 223773] <- collegeScorecard$TUITFTE[collegeScorecard$UNITID==223773] # Cedar Valley College
-  fullData$inStateTuitionAndFees[fullData$UNITID == 224572] <- collegeScorecard$TUITFTE[collegeScorecard$UNITID==224572] # Eastfield College
-  fullData$inStateTuitionAndFees[fullData$UNITID == 226930] <- collegeScorecard$TUITFTE[collegeScorecard$UNITID==226930] # Mountain View College
-  fullData$inStateTuitionAndFees[fullData$UNITID == 227191] <- collegeScorecard$TUITFTE[collegeScorecard$UNITID==227191] # North Lake College
-  fullData$inStateTuitionAndFees[fullData$UNITID == 227766] <- collegeScorecard$TUITFTE[collegeScorecard$UNITID==227766] # Richland College
-  fullData$inStateTuitionAndFees[fullData$UNITID == 439145] <- collegeScorecard$TUITFTE[collegeScorecard$UNITID==439145] # Pierce College-Puyallup
-  fullData$inStateTuitionAndFees[fullData$UNITID == 214795] <- collegeScorecard$TUITFTE[collegeScorecard$UNITID==214795] # Pennsylvania State University-Penn State Mont Alto (PA)
+  fullData$inStateTuitionAndFees[fullData$UNITID == 491844] <- collegeScorecard$TUITFTE[collegeScorecard$UNITID==491844]  # Red Lake Nation College (MN)
   
+  fullData$inDistrictTuitionAndFees[fullData$UNITID == 155618] <- fullData$inStateTuitionAndFees[fullData$UNITID == 155618] # Northwest Kansas Technical College (KS)
+  fullData$inDistrictTuitionAndFees[fullData$UNITID == 369668] <- fullData$inStateTuitionAndFees[fullData$UNITID == 369668] # Central Pennsylvania Institute of Science and Technology (PA)
+  fullData$inDistrictTuitionAndFees[fullData$UNITID == 383084] <- fullData$inStateTuitionAndFees[fullData$UNITID == 383084] # Hacienda La Puente Adult Education (CA)
+  fullData$inDistrictTuitionAndFees[fullData$UNITID == 413802] <- fullData$inStateTuitionAndFees[fullData$UNITID == 413802] # East San Gabriel Valley Regional Occupational Program (CA)
+  fullData$inDistrictTuitionAndFees[fullData$UNITID == 418533] <- fullData$inStateTuitionAndFees[fullData$UNITID == 418533] # Lancaster County Career and Technology Center (PA)
+  fullData$inDistrictTuitionAndFees[fullData$UNITID == 430795] <- fullData$inStateTuitionAndFees[fullData$UNITID == 430795] # Carver Career Center (WV)
+  fullData$inDistrictTuitionAndFees[fullData$UNITID == 491844] <- fullData$inStateTuitionAndFees[fullData$UNITID == 491844] # Red Lake Nation College (MN)
+  
+  fullData$outOfStateTuitionAndFees[fullData$UNITID == 155618] <- fullData$inStateTuitionAndFees[fullData$UNITID == 155618] # Northwest Kansas Technical College (KS)
+  fullData$outOfStateTuitionAndFees[fullData$UNITID == 369668] <- fullData$inStateTuitionAndFees[fullData$UNITID == 369668] # Central Pennsylvania Institute of Science and Technology (PA)
+  fullData$outOfStateTuitionAndFees[fullData$UNITID == 383084] <- fullData$inStateTuitionAndFees[fullData$UNITID == 383084] # Hacienda La Puente Adult Education (CA)
+  fullData$outOfStateTuitionAndFees[fullData$UNITID == 413802] <- fullData$inStateTuitionAndFees[fullData$UNITID == 413802] # East San Gabriel Valley Regional Occupational Program (CA)
+  fullData$outOfStateTuitionAndFees[fullData$UNITID == 418533] <- fullData$inStateTuitionAndFees[fullData$UNITID == 418533] # Lancaster County Career and Technology Center (PA)
+  fullData$outOfStateTuitionAndFees[fullData$UNITID == 430795] <- fullData$inStateTuitionAndFees[fullData$UNITID == 430795] # Carver Career Center (WV)
+  fullData$outOfStateTuitionAndFees[fullData$UNITID == 491844] <- fullData$inStateTuitionAndFees[fullData$UNITID == 491844] # Red Lake Nation College (MN)
+  
+  fullData$differentPricing[fullData$UNITID == 155618] <- "No" # Northwest Kansas Technical College (KS)
+  fullData$differentPricing[fullData$UNITID == 369668] <- "No" # Central Pennsylvania Institute of Science and Technology (PA)
+  fullData$differentPricing[fullData$UNITID == 383084] <- "No" # Hacienda La Puente Adult Education (CA)
+  fullData$differentPricing[fullData$UNITID == 413802] <- "No" # East San Gabriel Valley Regional Occupational Program (CA)
+  fullData$differentPricing[fullData$UNITID == 418533] <- "No" # Lancaster County Career and Technology Center (PA)
+  fullData$differentPricing[fullData$UNITID == 430795] <- "No" # Carver Career Center (WV)
+  fullData$differentPricing[fullData$UNITID == 491844] <- "No" # Red Lake Nation College (MN)
+  
+  fullData$inDistrictTuitionAndFees <- as.numeric(fullData$inDistrictTuitionAndFees)
   fullData$inStateTuitionAndFees <- as.numeric(fullData$inStateTuitionAndFees)
+  fullData$outOfStateTuitionAndFees <- as.numeric(fullData$outOfStateTuitionAndFees)
   
   #########################################################
   #### Step 5 of methodology:                          ####
@@ -375,7 +470,7 @@ runCostModel <- function(stateFileName, tribeFileName, geoFileName, definingPred
   #########################################################
   ####            Method 2 for in-state PCT            ####
   #########################################################
-  #### Okay, so we have 308 institutions that lack     ####
+  #### We have a few hundred institutions that lack    ####
   #### the data we need for the methods above. Now, we ####
   #### use another approach, looking at the percentage ####
   #### of each institution's financial aid cohort that ####
@@ -386,15 +481,15 @@ runCostModel <- function(stateFileName, tribeFileName, geoFileName, definingPred
     "UNITID",   # Unique identification number of the institution
     "SCFA11N",  # Number of students in fall cohort who are paying in-district tuition rates, 2018-19
     "SCFA12N",  # Number of students in fall cohort who are paying in-state tuition rates, 2018-19
-    "SCFA13N",  # Number of students in fall cohort who are paying out-of-state tuition rates, 2018-19
-    "SCFA11P",  # Percentage of students in fall cohort who are paying in-district tuition rates, 2018-19
-    "SCFA12P",  # Percentage of students in fall cohort who are paying in-state tuition rates, 2018-19
-    "SCFA13P",  # Percentage of students in fall cohort who are paying out-of-state tuition rates, 2018-19
-    "SCFA14P"   # Percentage of students in fall cohort whose residence/ tuition rate is unknown
+    "SCFA13N"   # Number of students in fall cohort who are paying out-of-state tuition rates, 2018-19
   ))
+  
+  # All ACP-eligible institutions with NA for one of these variables has NA for all of them. 
+  # Because we only use SCFA11N, SCFA12N, and SCFA13N in relation to one another, imputing 0s does not create issues down the line. 
   sfa1819$SCFA11N[is.na(sfa1819$SCFA11N)] <- 0
   sfa1819$SCFA12N[is.na(sfa1819$SCFA12N)] <- 0
   sfa1819$SCFA13N[is.na(sfa1819$SCFA13N)] <- 0
+
   sfa1819$SCFA11N <- as.numeric(sfa1819$SCFA11N)
   sfa1819$SCFA12N <- as.numeric(sfa1819$SCFA12N)
   sfa1819$SCFA13N <- as.numeric(sfa1819$SCFA13N)
@@ -402,6 +497,11 @@ runCostModel <- function(stateFileName, tribeFileName, geoFileName, definingPred
   sfa1819$residentPct <- as.numeric(sfa1819$residentPct)
   sfa1819$residentPct[is.nan(sfa1819$residentPct)] <- NA
   fullData <- left_join(x=fullData, y=sfa1819, by="UNITID")
+  
+  # Penn State-DuBois is missing from SFA1819, so we impute 0 values for its SCFA values. 
+  fullData$SCFA11N[fullData$UNITID==214740] <- 0
+  fullData$SCFA12N[fullData$UNITID==214740] <- 0
+  fullData$SCFA13N[fullData$UNITID==214740] <- 0
   
   # For Discussion Item 2 in the methodology: 
   # sum(is.na(fullData$residentPct) & is.na(fullData$inStatePct))
@@ -439,7 +539,7 @@ runCostModel <- function(stateFileName, tribeFileName, geoFileName, definingPred
   fullData$newResidentPct <- ifelse(fullData$differentPricing == "Yes", fullData$theoreticalResidentPct, 1)
   
   #########################################################
-  #### Now we just apply this residency percentage to  ####
+  #### Now we apply this residency percentage to       ####
   #### all our enrollment variables.                   ####
   #########################################################
   
@@ -457,6 +557,20 @@ runCostModel <- function(stateFileName, tribeFileName, geoFileName, definingPred
   fullData$EFYNRALT <- fullData$EFYNRALT * fullData$newResidentPct
   
   #########################################################
+  #### We can now approximate the share of             ####
+  #### tuition and fee revenue that corresponds to     ####
+  #### in-state enrollment. Once we do this, we        ####
+  #### this resident tuition revenue per FTE.          #### 
+  #########################################################
+  
+  fullData$residentTuitionRevenuePct <- ((fullData$inDistrictTuitionAndFees * fullData$SCFA11N) + (fullData$inStateTuitionAndFees * fullData$SCFA12N)) / ((fullData$inDistrictTuitionAndFees * fullData$SCFA11N) + (fullData$inStateTuitionAndFees * fullData$SCFA12N)+ (fullData$outOfStateTuitionAndFees * fullData$SCFA13N))
+  
+  fullData$residentTuitionRevenuePct <- ifelse(is.nan(fullData$residentTuitionRevenuePct), 1, fullData$residentTuitionRevenuePct)
+  
+  fullData$residentTuitionAndFeeRevenue <- fullData$tuitionAndFeeRevenue * fullData$residentTuitionRevenuePct
+  fullData$residentTuitionAndFeeRevenuePerFTE <- fullData$residentTuitionAndFeeRevenue / fullData$residentFTE
+  
+  #########################################################
   #### Step 7 of methodology:                          ####
   #########################################################
   
@@ -470,6 +584,7 @@ runCostModel <- function(stateFileName, tribeFileName, geoFileName, definingPred
   #########################################################
   
   fullData$adjResidentFTE <- fullData$residentFTE * 0.9459854
+  fullData$adjResidentTuitionAndFeeRevenue <- fullData$residentTuitionAndFeeRevenue * 0.9459854
   
   fullData$EFYTOTLT <- fullData$EFYTOTLT * 0.852
   fullData$EFYAIANT <- fullData$EFYAIANT * 0.852
@@ -566,15 +681,22 @@ runCostModel <- function(stateFileName, tribeFileName, geoFileName, definingPred
   #########################################################
   #### We need to find the actual cost of eliminating  ####
   #### tuition and fees. First we find the weighted    ####
-  #### tuition charges per institution for resident    ####
+  #### tuition charges per institution for             ####
   #### students, based on students in the fall cohort. ####
+  #### We do this once for residents only, then once   ####
+  #### for all students.                               ####
   #### This takes cue from "differentPricing" which    ####
   #### affects who is counted as a resident student.   ####
   #########################################################
   
-  fullData$weightedTuitionFees <- ifelse(fullData$differentPricing=="No", (fullData$TUITION2 + fullData$FEE2), (((fullData$TUITION1 + fullData$FEE1) * (fullData$SCFA11N / (fullData$SCFA11N + fullData$SCFA12N))) + ((fullData$TUITION2 + fullData$FEE2) * (fullData$SCFA12N / (fullData$SCFA11N + fullData$SCFA12N)))))
-
-  fullData$tuitionFTEproduct <- fullData$adjResidentFTE * fullData$weightedTuitionFees
+  fullData$SCFA1AN <- fullData$SCFA11N + fullData$SCFA12N + fullData$SCFA13N
+  
+  fullData$weightedResidentTuitionFees <- ifelse(fullData$differentPricing=="No", (fullData$inStateTuitionAndFees), (((fullData$inDistrictTuitionAndFees) * (fullData$SCFA11N / (fullData$SCFA11N + fullData$SCFA12N))) + ((fullData$inStateTuitionAndFees) * (fullData$SCFA12N / (fullData$SCFA11N + fullData$SCFA12N)))))
+  
+  fullData$weightedAllTuitionFees <- ifelse(fullData$differentPricing=="No", (fullData$inStateTuitionAndFees), (((fullData$inDistrictTuitionAndFees) * (fullData$SCFA11N / fullData$SCFA1AN)) + ((fullData$inStateTuitionAndFees) * (fullData$SCFA12N / fullData$SCFA1AN)) + ((fullData$outOfStateTuitionAndFees) * (fullData$SCFA13N / fullData$SCFA1AN))))
+  
+  fullData$tuitionFTEproduct1 <- fullData$adjResidentFTE * fullData$weightedResidentTuitionFees
+  fullData$tuitionFTEproduct2 <- fullData$EFTEUG * fullData$weightedAllTuitionFees
   
   #########################################################
   #### Now we prepare to aggregate data by state.      ####
@@ -609,7 +731,13 @@ runCostModel <- function(stateFileName, tribeFileName, geoFileName, definingPred
   #### which is a function of the median tuition/fees. ####
   #########################################################
   
-  medianTuition <- median(fullStateData$inStateTuitionAndFees)
+  if(onlyStandardFees==TRUE){
+    medianTuition <- median(fullStateData$inStateTuitionAndFees, na.rm=TRUE)
+  }
+  if(onlyStandardFees==FALSE){
+    fullStateData$forMedian <- fullStateData$residentTuitionAndFeeRevenuePerFTE * (fullStateData$inStateTuitionAndFees / fullStateData$weightedResidentTuitionFees) # This provides a bump for institutions where students are counted as in-district for the purposes of tuition charges. 
+    medianTuition <- median(fullStateData$forMedian, na.rm=TRUE)
+  }
   
   fullStateData$partnershipCost <- fullStateData$adjResidentFTE * medianTuition
   fullTribeData$partnershipCost <- fullTribeData$adjResidentFTE * medianTuition
@@ -625,7 +753,7 @@ runCostModel <- function(stateFileName, tribeFileName, geoFileName, definingPred
   #########################################################
   
   fullTribeData$federalAllocation <- ifelse(fullTribeData$TRIBAL==1, 
-                                            ifelse(fullTribeData$partnershipCost >= fullTribeData$tuitionFTEproduct, fullTribeData$partnershipCost, fullTribeData$tuitionFTEproduct), 
+                                            ifelse(fullTribeData$partnershipCost >= fullTribeData$tuitionFTEproduct1, fullTribeData$partnershipCost, fullTribeData$tuitionFTEproduct1), 
                                             fullTribeData$partnershipCost)
  
   #########################################################
@@ -638,10 +766,10 @@ runCostModel <- function(stateFileName, tribeFileName, geoFileName, definingPred
   
   # Adding undergraduate FTE enrollment (both sets)
   stateModel <- left_join(x=stateModel, y=
-                            aggregate(data=fullStateData, EFTEUG ~ STABBR2, FUN=SUM), 
+                            aggregate(data=fullStateData, EFTEUG ~ STABBR2, FUN=sum), 
                           by="STABBR2")
   tribeModel <- left_join(x=tribeModel, y=
-                            aggregate(data=fullTribeData, EFTEUG ~ STABBR2, FUN=SUM),
+                            aggregate(data=fullTribeData, EFTEUG ~ STABBR2, FUN=sum),
                           by="STABBR2")
   
   # Adding federalAllocation (territories/TCUs)
@@ -654,9 +782,36 @@ runCostModel <- function(stateFileName, tribeFileName, geoFileName, definingPred
                           y=aggregate(data=fullStateData, partnershipCost ~ STABBR2, FUN=sum), 
                           by="STABBR2")
   
-  # Adding tuitionFTEproduct (states)
+  # Adding tuitionFTEproduct1 (both)
   stateModel <- left_join(x=stateModel, 
-                          y=aggregate(data=fullStateData, tuitionFTEproduct ~ STABBR2, FUN=sum), 
+                          y=aggregate(data=fullStateData, tuitionFTEproduct1 ~ STABBR2, FUN=sum), 
+                          by="STABBR2")
+  tribeModel <- left_join(x=tribeModel, 
+                          y=aggregate(data=fullTribeData, tuitionFTEproduct1 ~ STABBR2, FUN=sum), 
+                          by="STABBR2")
+  
+  # Adding tuitionFTEproduct2 (both)
+  stateModel <- left_join(x=stateModel, 
+                          y=aggregate(data=fullStateData, tuitionFTEproduct2 ~ STABBR2, FUN=sum), 
+                          by="STABBR2")
+  tribeModel <- left_join(x=tribeModel, 
+                          y=aggregate(data=fullTribeData, tuitionFTEproduct2 ~ STABBR2, FUN=sum), 
+                          by="STABBR2")
+  
+  # Adding tuitionAndFeeRevenue (both)
+  stateModel <- left_join(x=stateModel, 
+                          y=aggregate(data=fullStateData, tuitionAndFeeRevenue ~ STABBR2, FUN=sum), 
+                          by="STABBR2")
+  tribeModel <- left_join(x=tribeModel, 
+                          y=aggregate(data=fullTribeData, tuitionAndFeeRevenue ~ STABBR2, FUN=sum), 
+                          by="STABBR2")
+  
+  # Adding adjResidentTuitionAndFeeRevenue (both)
+  stateModel <- left_join(x=stateModel, 
+                          y=aggregate(data=fullStateData, adjResidentTuitionAndFeeRevenue ~ STABBR2, FUN=sum), 
+                          by="STABBR2")
+  tribeModel <- left_join(x=tribeModel, 
+                          y=aggregate(data=fullTribeData, adjResidentTuitionAndFeeRevenue ~ STABBR2, FUN=sum), 
                           by="STABBR2")
   
   # Adding MSI data (both sets)
@@ -667,20 +822,13 @@ runCostModel <- function(stateFileName, tribeFileName, geoFileName, definingPred
   stateModel <- left_join(x=stateModel, y=EFFYbyState, by="STABBR2")
   tribeModel <- left_join(x=tribeModel, y=EFFYbyState, by="STABBR2")
   
-  #########################################################
-  #### These lines are for loading in state financial  ####
-  #### aid sums by state. Here we use STABBR rather    ####
-  #### than STABBR2 because the state would get credit ####
-  #### for state financial aid money sent to a tribal  ####
-  #### college in its borders.                         ####
-  #########################################################
-  
-  stateFinAid <- aggregate(data=fullData, STATEGRANTS ~ STABBR, FUN=sum) 
-  names(stateFinAid) <- c("STABBR2", "stateFinAid")
-  stateModel <- left_join(x=stateModel, y=stateFinAid, by="STABBR2")
+  # Adding state financial aid 
+  stateModel <- left_join(x=stateModel, 
+                          y=aggregate(data=fullData, stateFinAid ~ STABBR2, FUN=sum), 
+                          by="STABBR2")
   
   #########################################################
-  #### Let's also add in a counting variable to know   ####
+  #### Now we add in a counting variable to know       ####
   #### many institutions are included in the           ####
   #### partnership.                                    ####
   #########################################################
@@ -733,6 +881,10 @@ runCostModel <- function(stateFileName, tribeFileName, geoFileName, definingPred
   write.csv(tribeModel, tribeFileName, row.names=FALSE)
   
   #########################################################
+  #### Step 11 of methodology:                         ####
+  #########################################################
+  
+  #########################################################
   #### We also pull out the latitude, longitude, and   ####
   #### FTEs of community colleges.                     ####
   #########################################################
@@ -749,8 +901,8 @@ runCostModel <- function(stateFileName, tribeFileName, geoFileName, definingPred
   rm(list = ls())
 }
 
-runCostModel("stateModelA.csv", "tribeModelA.csv", "geoFileA.csv", definingPredominant=TRUE)
-runCostModel("stateModelB.csv", "tribeModelB.csv", "geoFileB.csv", definingPredominant=FALSE)
+runCostModel(stateFileName = "stateModelA.csv", tribeFileName = "tribeModelA.csv", geoFileName = "geoFile.csv", onlyStandardFees = TRUE)
+runCostModel(stateFileName = "stateModelB.csv", tribeFileName = "tribeModelB.csv", geoFileName = "geoFile.csv", onlyStandardFees = FALSE)
 
 
 

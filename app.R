@@ -7,8 +7,8 @@ library(DT)
 ui <- fluidPage(
     
     titlePanel("America's College Promise Federal-State Partnership"),
-    h5("The Century Foundation (TCF) has developed this interactive cost model to help lawmakers and the public explore funding outcomes from the proposed America's College Promise federal-state partnership for tuition-free community college."), 
-    h5("In the lefthand panel, select key design inputs for the federal-state partnership for tuition-free community college. You will then see effects on new federal funding, the funding distribution to states and tribes, and breakdowns by subgroups. This model is based on the Concurrent Resolution on the Budget for Fiscal Year 2022, published by the House Committee on Education & Labor on September 8, 2021."), 
+    h5("The Century Foundation (TCF) has developed this interactive cost model to help lawmakers and the public explore projected funding outcomes from the proposed America's College Promise federal-state partnership for tuition-free community college."), 
+    h5("In the lefthand panel, select key design inputs for the federal-state partnership for tuition-free community college. After clicking 'Enter my selection,' you will then see effects on new federal funding, the funding distribution to states, territories, and tribal colleges and universities, as well as breakdowns by subgroups. This model is based on the text of Title II of the Concurrent Resolution on the Budget for Fiscal Year 2022, i.e. the Build Back Better Act, published by the House Committee on Education & Labor on September 8, 2021."), 
     h5("For any questions about this model, please email granville@tcf.org."),
 
     sidebarLayout(
@@ -75,7 +75,33 @@ ui <- fluidPage(
                     ),
                     h6("Default values are those included in the House Education & Labor Committee's bill text."),
                     br(),
-                    h5(em("Additional Assumptions")),
+                    h5(em("Actions by States and the Education Department")),
+                    h6("Federal allocations to states under ACP are a function of tuition and fee charges. As a condition of receiving these allocations, states must set tuition and fees to $0 for eligible students. However, 'tuition and fees' is not defined in the bill text, meaning Education Department regulations will establish what counts as tuition and fees."),
+                    selectInput(
+                        inputId = "departmentDecision",
+                        label="Will the Education Department determine that 'tuition and fees' only includes basic enrollment charges, or that it includes all charges, including higher fees for special programs?",
+                        choices=c(
+                            "Only basic tuition and fees",
+                            "All charges"
+                        )
+                    ),
+                    h6("Some programs (e.g. nursing programs) charge students higher fees for special expenses such as certification or equipment. This selection will affect the federal ACP funding per FTE student."),
+                    selectInput(
+                        inputId = "stateFeeDecision", 
+                        label = "Will states waive all tuition and fee charges, in addition to basic enrollment charges? If you answered 'All charges' to the previous question, then you can ignore this question.",
+                        choices = c(
+                            "No", 
+                            "Yes"
+                        )
+                    ),
+                    selectInput(
+                        inputId = "stateStudentDecision",
+                        label = "Will states waive tuition and fees only for those students deemed eligible under the ACP bill text, or for all undergraduate students? This would affect students enrolled less-than-half-time and many students enrolled outside of their home state.", 
+                        choices = c(
+                            "Only those deemed eligible by Congress", 
+                            "All undergraduate students"
+                        )
+                    ),
                     selectInput(
                         inputId = "medicaid", 
                         label = "Will the 12 states that have not adopted Medicaid expansion under the ACA choose to participate in ACP?", 
@@ -84,6 +110,15 @@ ui <- fluidPage(
                             "No")
                     ),
                     h6("These states are Alabama, Florida, Georgia, Kansas, Mississippi, North Carolina, South Carolina, South Dakota, Tennessee, Texas, Wisconsin, and Wyoming."),
+                    numericInput(
+                        inputId = "alaskaFunding", 
+                        label = "Alaska does not have any community colleges listed in IPEDS that would automatically qualify for ACP. Will the Education Department designate any campuses or centers in Alaska as community colleges under Section 791(5)(D) of the bill? If so, enter how much money would be sent from the federal government to Alaska.", 
+                        value=0, 
+                        min=0,
+                        step=1
+                    ),
+                    br(),
+                    h5(em("Key Assumptions")),
                     sliderInput(
                         inputId="averageCPIgrowth", 
                         label="Specify the average CPI inflation rate you expect between 2023 and 2028.", 
@@ -111,23 +146,8 @@ ui <- fluidPage(
                         value=0.0,
                         step=0.1, 
                         post="%"
-                    ),
-                    h6("It's impossible to know what this effect will be, so take your best guess."), 
-                    br(),
-                    h5(em("Interpreting bill text")),
-                    h6(""),
-                    selectInput(
-                        inputId = "definingPredominant", 
-                        label = "When the bill refers to institutions where 'an associate degree is the predominant degree awarded,' does this mean the majority of degrees awarded are at the associate level or that the associate degree is the degree most frequently awarded?", 
-                        choices=c(
-                            "The majority of degrees", 
-                            "The degree most frequently awarded")
                     )
                 ), 
-                
-                
-                
-                
 
                 tabPanel("Variable match", fluid=TRUE,
                          h5(em("Adding a variable match to ACP")),
@@ -172,11 +192,6 @@ ui <- fluidPage(
                          h6("Think of these as bounds on the match rate. The slider can go above 100% because some states, including many poorer states, have tuition and fee prices above the national average.")
                 ),
 
-                
-                
-                
-                
-                
                 tabPanel("State fin. aid", fluid=TRUE,
                          h5(em("State financial aid totals")),
                          h6("A state may include in its share of ACP costs the amount of need-based financial aid it delivers to ACP-eligible community college students to pay for non-tuition expenses (see Sec. 786(b)(2) of Ed & Labor's bill text). Assuming that each state converts its existing financial aid for community college tuition into stipends for community college students, then the amount of existing state financial aid affects how much new money states would need to appropriate to join ACP."), 
@@ -433,7 +448,20 @@ ui <- fluidPage(
         ),
 
         mainPanel(
-           plotlyOutput("map1"),
+           tabsetPanel(
+                tabPanel("Map of eligible institutions", fluid=TRUE, 
+                         br(),
+                         plotlyOutput("map2"), 
+                         h6("Another 11 eligible institutions are located in U.S. territories and outlying areas. Some institutions displayed here as individual colleges have multiple campuses."), 
+                         br()
+                ), 
+                tabPanel("Map of federal funding per FTE by state", fluid=TRUE, 
+                         br(),
+                         plotlyOutput("map1"), 
+                         h6("Options in the 'Variable Match' tab allow you to adjust state allocations based on factors related to state income and wealth."), 
+                         br()
+                )
+           ),
            h4("Table 1: America's College Promise basics: Selected year"),
            tableOutput("table0"),
            h6("ACP funding per FTE refers to the median resident community college tuition and fee charge, which is the basis for the required federal and state allocations."),
@@ -495,19 +523,84 @@ server <- function(input, output) {
         #### based on the inputs submitted by the user.            ####
         ###############################################################
         
-        if(input$definingPredominant=="The majority of degrees"){
+        if(input$departmentDecision == "Only basic tuition and fees"){
             stateFile <- "Data/stateModelA.csv"
             tribeFile <- "Data/tribeModelA.csv"
-            geoFile <- "Data/geoFileA.csv"
         }
-        if(input$definingPredominant=="The degree most frequently awarded"){
+        if(input$departmentDecision == "All charges"){
             stateFile <- "Data/stateModelB.csv"
             tribeFile <- "Data/tribeModelB.csv"
-            geoFile <- "Data/geoFileB.csv"
         }
+        geoFile <- "Data/geoFile.csv"
+        
         stateData <- read.csv(stateFile, header=TRUE)
         tribeData <- read.csv(tribeFile, header=TRUE)
         geoData <- read.csv(geoFile, header=TRUE)
+        
+        ###############################################################
+        #### Here we write out the full names of territories to    ####
+        #### accommodate those who may not know what territories'  ####
+        #### abbreviations stand for.                              ####
+        ###############################################################
+        
+        territoryNames <- data.frame(STABBR2=c("AS", "FM", "GU", "MH", "MP", "PR", "PW", "Tribal Colleges"), 
+                                     STABBR3=c("American Samoa", "Federated States of Micronesia", "Guam", "Marshall Islands", "Northern Mariana Islands", "Puerto Rico", "Palau", "Tribal Colleges"))
+        tribeData <- left_join(x=tribeData, y=territoryNames, by="STABBR2")
+        tribeData$STABBR2 <- tribeData$STABBR3
+        
+        ###############################################################
+        #### Next we have to find out the median tuition/fees per  ####
+        #### FTE for the universe of colleges included in the      ####
+        #### model. We can  derive this from the FTE and           ####
+        #### total cost variables for states and tribes.           ####
+        ###############################################################
+        
+        medianTuition <- sum(stateData$partnershipCost) / sum(stateData$adjResidentFTE)
+        
+        ###############################################################
+        #### Next we load in the tuition target that states must   ####
+        #### fund to eliminate tuition and fees. This is dependent ####
+        #### on the user's inputs for Education Department action, ####
+        #### state action on fee coverage, and state action on     ####
+        #### student eligibility.                                  ####
+        ###############################################################
+        
+        if(input$departmentDecision == "Only basic tuition and fees"){
+            if(input$stateFeeDecision == "Yes"){
+                if(input$stateStudentDecision == "Only those deemed eligible by Congress"){
+                    stateData$tuitionTarget <- stateData$adjResidentTuitionAndFeeRevenue
+                }
+                if(input$stateStudentDecision == "All undergraduate students"){
+                    stateData$tuitionTarget <- stateData$tuitionAndFeeRevenue 
+                }
+            }
+            if(input$stateFeeDecision == "No"){
+                if(input$stateStudentDecision == "Only those deemed eligible by Congress"){
+                    stateData$tuitionTarget <- stateData$tuitionFTEproduct1
+                }
+                if(input$stateStudentDecision == "All undergraduate students"){
+                    stateData$tuitionTarget <- stateData$tuitionFTEproduct2
+                }
+            }
+        }
+        if(input$departmentDecision == "All charges"){
+            if(input$stateFeeDecision == "Yes"){
+                if(input$stateStudentDecision == "Only those deemed eligible by Congress"){
+                    stateData$tuitionTarget <- stateData$adjResidentTuitionAndFeeRevenue 
+                }
+                if(input$stateStudentDecision == "All undergraduate students"){
+                    stateData$tuitionTarget <- stateData$tuitionAndFeeRevenue 
+                }
+            }
+            if(input$stateFeeDecision == "No"){
+                if(input$stateStudentDecision == "Only those deemed eligible by Congress"){
+                    stateData$tuitionTarget <- stateData$adjResidentTuitionAndFeeRevenue 
+                }
+                if(input$stateStudentDecision == "All undergraduate students"){
+                    stateData$tuitionTarget <- stateData$tuitionAndFeeRevenue 
+                }
+            }
+        }
         
         ###############################################################
         #### We now merge in the state financial aid totals        ####
@@ -615,7 +708,7 @@ server <- function(input, output) {
             input$westVirginia,
             input$wyoming
         ))
-        names(stateFinAid) <- c("STABBR2", "STATEGRANTS2")
+        names(stateFinAid) <- c("STABBR2", "stateGrants")
         stateData <- left_join(x=stateData, y=stateFinAid, by="STABBR2")
         
         ###############################################################
@@ -629,9 +722,9 @@ server <- function(input, output) {
         changeFromEnrollBase <- (1 - (input$covidEffect / 100)) * (1 + (input$inducementEffect / 100))
         
         stateData$adjResidentFTE <- stateData$adjResidentFTE * changeFromEnrollBase  
-        tribeData$adjResidentFTE <- tribeData$adjResidentFTE * changeFromEnrollBase  
-        stateData$partnershipCost <- stateData$partnershipCost * changeFromEnrollBase  
-        stateData$tuitionFTEproduct <- stateData$tuitionFTEproduct * changeFromEnrollBase
+        tribeData$adjResidentFTE <- tribeData$adjResidentFTE * changeFromEnrollBase
+        stateData$partnershipCost <- stateData$partnershipCost * changeFromEnrollBase
+        stateData$tuitionTarget <- stateData$tuitionTarget * changeFromEnrollBase 
         tribeData$federalAllocation <- tribeData$federalAllocation * changeFromEnrollBase
         
         stateData$AANAPIIfte <- stateData$AANAPIIfte * changeFromEnrollBase  
@@ -665,19 +758,10 @@ server <- function(input, output) {
         tribeData$EFYTWOTT <- tribeData$EFYTWOTT * changeFromEnrollBase  
 
         ###############################################################
-        #### Next we have to find out the median tuition/fees per  ####
-        #### FTE for the universe of colleges included in the      ####
-        #### model. We can  derive this from the FTE and           ####
-        #### total cost variables for states and tribes.           ####
-        ###############################################################
-        
-        medianTuition <- sum(stateData$partnershipCost) / sum(stateData$adjResidentFTE)
-        
-        ###############################################################
         #### At this stage, we will apply the filter for states    ####
         #### the user assumes will not participate. stateDataAll   ####
         #### is created to preserve the list of all states, which  ####
-        #### is necessary for Table 
+        #### is necessary for Tables 5 and 6.                      ####
         ###############################################################
         
         stateDataAll <- stateData 
@@ -796,7 +880,7 @@ server <- function(input, output) {
         
         forChart01 <- stateData %>% select(STABBR2, federalAllocationPerCapita)
         forChart01$federalAllocationPerCapita <- as.numeric(formatC(round(forChart01$federalAllocationPerCapita, 0), format="d", big.mark=","))
-        chart01 <- plot_ly(forChart01, x = ~STABBR2, y = ~federalAllocationPerCapita, type = 'bar') %>% layout(title = "Figure 2: New federal funding per resident aged 18-35 without a college degree (Selected year)",
+        chart01 <- plot_ly(forChart01, x = ~STABBR2, y = ~federalAllocationPerCapita, type = 'bar') %>% layout(title = "New federal funding per resident aged 18-35 without a college degree (Selected year)",
                               xaxis = list(title = "State"),
                               yaxis = list(title = "Federal funding per capita", tickformat = "$"))
         output$chart1 <- renderPlotly({
@@ -808,11 +892,11 @@ server <- function(input, output) {
         #### the federal government over ten years.                ####
         ###############################################################
         
-        costIn2024 <- ((((input$averageMatch2024/100) * sum(stateData$partnershipCost)) + sum(tribeData$federalAllocation)) * (CPIgrowthRate)^0)
-        costIn2025 <- ((((input$averageMatch2025/100) * sum(stateData$partnershipCost)) + sum(tribeData$federalAllocation)) * (CPIgrowthRate)^1)
-        costIn2026 <- ((((input$averageMatch2026/100) * sum(stateData$partnershipCost)) + sum(tribeData$federalAllocation)) * (CPIgrowthRate)^2)
-        costIn2027 <- ((((input$averageMatch2027/100) * sum(stateData$partnershipCost)) + sum(tribeData$federalAllocation)) * (CPIgrowthRate)^3)
-        costIn2028 <- ((((input$averageMatch2028/100) * sum(stateData$partnershipCost)) + sum(tribeData$federalAllocation)) * (CPIgrowthRate)^4)
+        costIn2024 <- ((((input$averageMatch2024/100) * sum(stateData$partnershipCost)) + sum(tribeData$federalAllocation) + input$alaskaFunding) * (CPIgrowthRate)^0)
+        costIn2025 <- ((((input$averageMatch2025/100) * sum(stateData$partnershipCost)) + sum(tribeData$federalAllocation) + input$alaskaFunding) * (CPIgrowthRate)^1)
+        costIn2026 <- ((((input$averageMatch2026/100) * sum(stateData$partnershipCost)) + sum(tribeData$federalAllocation) + input$alaskaFunding) * (CPIgrowthRate)^2)
+        costIn2027 <- ((((input$averageMatch2027/100) * sum(stateData$partnershipCost)) + sum(tribeData$federalAllocation) + input$alaskaFunding) * (CPIgrowthRate)^3)
+        costIn2028 <- ((((input$averageMatch2028/100) * sum(stateData$partnershipCost)) + sum(tribeData$federalAllocation) + input$alaskaFunding) * (CPIgrowthRate)^4)
 
         costOverFiveYears <- sum(costIn2024, costIn2025, costIn2026, costIn2027, costIn2028)
         table2fed <- data.frame(timeline = c("Fiscal Year 2023-24",
@@ -842,35 +926,32 @@ server <- function(input, output) {
         #### contribute to participate.                            ####
         ###############################################################
         
-        # stateContribution = The cost of admission. ED will not approve the state's application unless this contribution is provided. 
+        # stateContribution = The total cost of admission. ED will not approve the state's application unless this contribution is provided. 
         stateData$stateContribution <- (stateData$partnershipCost * inflationAdjustment) * (1 - stateData$matchRate)
         stateData$stateContribution <- ifelse(stateData$stateContribution < 0, 0, stateData$stateContribution)
         
-        # stateNewMoney = New appropriations. Assuming that the state continues to provide state financial aid to community college students in the form of non-tuition stipends, it only needs to newly appropriate stateNewMoney.   
-        # if(input$californiaPromiseGrant=="Yes"){
-        #     stateData$STATEGRANTS2[stateData$STABBR2=="CA"] <- (stateData$STATEGRANTS2[stateData$STABBR2=="CA"] + 722248598)
-        # }
-        stateData$stateNewMoney <- stateData$stateContribution - stateData$STATEGRANTS2
-        stateData$stateNewMoney <- ifelse(stateData$stateNewMoney < 0, 0, stateData$stateNewMoney)
+        # stateBuyIn = New appropriations to cover stateContribution. Assuming that the state continues to provide state financial aid to community college students in the form of non-tuition stipends, it only needs to newly appropriate stateNewMoney.   
+        stateData$stateBuyIn <- stateData$stateContribution - stateData$stateGrants
+        stateData$stateBuyIn <- ifelse(stateData$stateBuyIn < 0, 0, stateData$stateBuyIn)
         
         # stateRemainder = The difference between the state's ACP total funds and the actual amount needed to waive tuition. When this amount is positive, the state has to appropriate even more to waive tuition. When this amount is negative, then the state actually has some overflow (see below). 
-        stateData$stateRemainder <- (stateData$tuitionFTEproduct * inflationAdjustment) - (stateData$federalAllocation + stateData$stateNewMoney)
-        stateData$extraContribution <- ifelse(stateData$stateRemainder >= 0, abs(stateData$stateRemainder), 0)
+        stateData$stateRemainder <- (stateData$tuitionTarget * inflationAdjustment) - (stateData$federalAllocation + stateData$stateBuyIn)
+        stateData$extraForTuitionTarget <- ifelse(stateData$stateRemainder >= 0, abs(stateData$stateRemainder), 0)
         
         # overflow = Money the state has left over to apply to other post-secondary purposes.  
         stateData$overflow <- ifelse(stateData$stateRemainder < 0, abs(stateData$stateRemainder), 0)
         
-        stateData$allNewMoney <- stateData$stateNewMoney + stateData$extraContribution
-        stateData$appropsIncrease <- (stateData$allNewMoney / (stateData$TwoYearEdApprops * inflationAdjustment))
+        stateData$allNewStateMoney <- stateData$stateBuyIn + stateData$extraForTuitionTarget
+        stateData$appropsIncrease <- (stateData$allNewStateMoney / (stateData$TwoYearEdApprops * inflationAdjustment))
         
-        forTable09 <- stateData %>% select(STABBR2, matchRate, federalAllocation, stateNewMoney, extraContribution, allNewMoney, overflow, appropsIncrease)
-        forTable10 <- stateData %>% select(STABBR2, matchRate, federalAllocation, stateNewMoney, extraContribution, allNewMoney, overflow, TwoYearEdApprops)
+        forTable09 <- stateData %>% select(STABBR2, matchRate, federalAllocation, stateBuyIn, extraForTuitionTarget, allNewStateMoney, overflow, appropsIncrease)
+        forTable10 <- stateData %>% select(STABBR2, matchRate, federalAllocation, stateBuyIn, extraForTuitionTarget, allNewStateMoney, overflow, TwoYearEdApprops)
         
         forTable09$matchRate <- label_percent(accuracy=0.1)(round(forTable09$matchRate, 3))
         forTable09$federalAllocation <- dollar(forTable09$federalAllocation)
-        forTable09$stateNewMoney <- dollar(forTable09$stateNewMoney)
-        forTable09$extraContribution <- dollar(forTable09$extraContribution)
-        forTable09$allNewMoney <- dollar(forTable09$allNewMoney)
+        forTable09$stateBuyIn <- dollar(forTable09$stateBuyIn)
+        forTable09$extraForTuitionTarget <- dollar(forTable09$extraForTuitionTarget)
+        forTable09$allNewStateMoney <- dollar(forTable09$allNewStateMoney)
         forTable09$overflow <- dollar(forTable09$overflow)
         forTable09$appropsIncrease <- label_percent(accuracy=0.1)(round(forTable09$appropsIncrease, 3))
 
@@ -885,20 +966,16 @@ server <- function(input, output) {
         ###############################################################
         
         table10 <- data.frame(c("Total federal funding to states", 
-                                #"Total state participation costs", 
-                                #"Total costs of waiving tuition and fees atop participation costs", 
                                 "Total new state funding required", 
                                 "Total overflow for other postsecondary purposes", 
                                 "State fin. aid for CC tuition available for non-tuition aid", 
                                 "Required increase in states' two-year educational appropriations from F.Y. 2020"), 
-                              c(dollar(sum(forTable10$federalAllocation)), 
-                                #dollar(sum(forTable10$stateNewMoney)), 
-                                #dollar(sum(forTable10$extraContribution)), 
-                                dollar(sum(forTable10$allNewMoney)), 
+                              c(dollar(sum(forTable10$federalAllocation)),
+                                dollar(sum(forTable10$allNewStateMoney)), 
                                 dollar(sum(forTable10$overflow)), 
-                                dollar(sum(stateData$STATEGRANTS2)), 
+                                dollar(sum(stateData$stateGrants)), 
                                 label_percent(accuracy=0.1)(round(
-                                    (sum(forTable10$allNewMoney, na.rm=TRUE) / sum(forTable10$TwoYearEdApprops, na.rm=TRUE)), 
+                                    (sum(forTable10$allNewStateMoney, na.rm=TRUE) / sum(forTable10$TwoYearEdApprops, na.rm=TRUE)), 
                                     3))))
         names(table10) <- c("Measure", "Amount")
         output$table010 <- renderTable({
@@ -925,7 +1002,6 @@ server <- function(input, output) {
         #### These next lines are just to make the tables more     ####
         #### easily read.                                          ####
         ###############################################################
-        
         table1state$adjResidentFTE <- formatC(round(table1state$adjResidentFTE, 0), format="d", big.mark=",")
         table1state$EFYTOTLT <- formatC(round(table1state$EFYTOTLT, 0), format="d", big.mark=",")
         table1state$matchRate <- label_percent(accuracy=0.1)(round(table1state$matchRate, 3))
@@ -956,16 +1032,20 @@ server <- function(input, output) {
         forStatesMap <- stateData %>% select(STABBR2, federalAllocationPerFTE)
         names(forStatesMap) <- c("STABBR2", "Federal Funding Per FTE")
         forStatesMap$hover <- paste0(forStatesMap$STABBR2, "\n$", forStatesMap$federalAllocationPerFTE)
-        statesMap <- plot_geo(forStatesMap, locationmode='USA-states') %>% add_trace(locations = ~STABBR2, z = ~`Federal Funding Per FTE`, zmin=0, zmax=6000, colorscale='Electric') %>% layout(geo = list(scope = 'usa'), title="Figure 1: Federal funding per FTE by state") %>% colorbar(tickprefix="$")
+        statesMap <- plot_geo(forStatesMap, locationmode='USA-states') %>% add_trace(locations = ~STABBR2, z = ~`Federal Funding Per FTE`, zmin=0, zmax=6000, colorscale='Electric') %>% layout(geo = list(scope = 'usa'), title="Federal funding per FTE by state") %>% colorbar(tickprefix="$")
 
-        # forStatesMap <- geoData %>% select(INSTNM, adjResidentFTE, LONGITUD, LATITUDE)
-        # forStatesMap$adjResidentFTE <- formatC(round(forStatesMap$adjResidentFTE, 0), format="d", big.mark=",")
-        # names(forStatesMap) <- c("Institution Name", "Eligible FTEs", "Longitude", "Latitude")
-        # forStatesMap$hover <- paste0(forStatesMap$`Institution Name`, "\n", forStatesMap$`Eligible FTEs`, " eligible FTE students")
-        # statesMap <- plot_geo(forStatesMap, locationmode='USA-states') %>% add_trace(type="scatter", mode="markers", lat=~Latitude, lon=~Longitude, text=~hover) %>% layout(geo = list(scope = 'usa'), title="Figure 1: Community Colleges and Tribal Colleges Eligible for ACP")
-        
         output$map1 <- renderPlotly({
             statesMap
+        })
+        
+        forStatesMap2 <- geoData %>% select(INSTNM, adjResidentFTE, LONGITUD, LATITUDE)
+        forStatesMap2$adjResidentFTE <- formatC(round(forStatesMap2$adjResidentFTE, 0), format="d", big.mark=",")
+        names(forStatesMap2) <- c("Institution Name", "Eligible FTEs", "Longitude", "Latitude")
+        forStatesMap2$hover <- paste0(forStatesMap2$`Institution Name`, "\n", forStatesMap2$`Eligible FTEs`, " eligible FTE students")
+        statesMap2 <- plot_geo(forStatesMap2, locationmode='USA-states') %>% add_trace(type="scatter", mode="markers", lat=~Latitude, lon=~Longitude, text=~hover) %>% layout(geo = list(scope = 'usa'), title="Community Colleges and Tribal Colleges Eligible for ACP")
+        
+        output$map2 <- renderPlotly({
+            statesMap2
         })
         
         ###############################################################
